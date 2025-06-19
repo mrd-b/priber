@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Multiplayer Clicker Game</title>
+  <style>
+    body { 
+      font-family: Arial, sans-serif; 
+      background: #222; 
+      color: #fff; 
+      margin: 0; 
+      padding: 0; 
+      display: flex; 
+      height: 100vh; 
+      overflow: hidden;
+    }
+    #leftPanel, #rightPanel {
+      width: 20%;
+      background: #111;
+      padding: 20px;
+      overflow-y: auto;
+    }
+    #leftPanel { border-right: 1px solid #444; }
+    #rightPanel { border-left: 1px solid #444; }
+    #mainArea {
+      flex: 1;
+      position: relative;
+      background: #333;
+    }
+    #clickBtn {
+      position: absolute;
+      padding: 20px 50px;
+      font-size: 24px;
+      background: linear-gradient(45deg, #ff6a00, #ee0979);
+      border: none;
+      border-radius: 15px;
+      cursor: pointer;
+      transition: transform 0.2s;
+    }
+    #loginModal {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.9);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 10;
+    }
+    .modalBox {
+      background: #222;
+      padding: 30px;
+      border-radius: 10px;
+      box-shadow: 0 0 20px #ee0979;
+      text-align: center;
+    }
+    input {
+      padding: 10px; margin: 10px;
+      width: 80%;
+      font-size: 16px;
+    }
+    button { 
+      padding: 10px 20px; 
+      font-size: 16px; 
+      cursor: pointer; 
+    }
+    .toggleBtn {
+      margin-top: 10px;
+      padding: 5px 10px;
+    }
+    .highlight { color: #ff6a00; font-weight: bold; }
+  </style>
+</head>
+<body>
+
+<div id="leftPanel">
+  <h3>Your Stats</h3>
+  <p>Clicks: <span id="myClicks">0</span></p>
+  <h4>Your Team:</h4>
+  <ul id="teamList"></ul>
+</div>
+
+<div id="mainArea">
+  <button id="clickBtn">Click Me!</button>
+</div>
+
+<div id="rightPanel">
+  <h3>Leaderboard</h3>
+  <button class="toggleBtn" onclick="toggleLeaderboard()">Toggle</button>
+  <ul id="leaderboardList"></ul>
+</div>
+
+<div id="loginModal">
+  <div class="modalBox">
+    <h2>Sign In / Sign Up</h2>
+    <input type="text" id="username" placeholder="Unique Username">
+    <input type="password" id="password" placeholder="Password">
+    <button onclick="login()">Start Game</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+  // PUT YOUR SUPABASE URL + ANON KEY BELOW
+  const SUPABASE_URL = 'https://fdivcoupubercxubktdh.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZkaXZjb3VwdWJlcmN4dWJrdGRoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTAzMjc0MDgsImV4cCI6MjA2NTkwMzQwOH0.tWh81ojcbhmKf6oHvVp3GG2iJ7L4Pa8Naq7GKzkRtOY';
+  const supabase = supabaseJs.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  let currentUser = null;
+  let referrer = new URLSearchParams(window.location.search).get('ref');
+
+  async function login() {
+    const username = document.getElementById('username').value.trim();
+    const password = document.getElementById('password').value.trim();
+
+    if (!username || !password) { alert("Fill both fields"); return; }
+
+    // Check if user exists
+    const { data, error } = await supabase.from('profiles').select('*').eq('username', username).single();
+
+    if (data) {
+      if (data.password !== password) { alert("Wrong password"); return; }
+      currentUser = data;
+    } else {
+      // Sign up new user
+      let insertData = { username, password, clicks: 0 };
+      if (referrer) insertData.team = referrer;
+      const { error: insertErr } = await supabase.from('profiles').insert(insertData);
+      if (insertErr) { alert("Username taken"); return; }
+      const { data: newData } = await supabase.from('profiles').select('*').eq('username', username).single();
+      currentUser = newData;
+    }
+
+    document.getElementById('loginModal').style.display = 'none';
+    updateUI();
+  }
+
+  function teleportButton() {
+    const btn = document.getElementById('clickBtn');
+    const w = window.innerWidth - 200;
+    const h = window.innerHeight - 100;
+    const x = Math.floor(Math.random() * w);
+    const y = Math.floor(Math.random() * h);
+    btn.style.left = x + 'px';
+    btn.style.top = y + 'px';
+  }
+
+  document.getElementById('clickBtn').addEventListener('click', async () => {
+    if (!currentUser) return;
+    currentUser.clicks += 1;
+    document.getElementById('myClicks').innerText = currentUser.clicks;
+    teleportButton();
+
+    await supabase.from('profiles').update({ clicks: currentUser.clicks }).eq('username', currentUser.username);
+
+    if (currentUser.team) {
+      const { data: parent } = await supabase.from('profiles').select('*').eq('username', currentUser.team).single();
+      if (parent) {
+        await supabase.from('profiles').update({ clicks: parent.clicks + 0.25 }).eq('username', parent.username);
+      }
+    }
+
+    updateLeaderboard();
+  });
+
+  async function updateUI() {
+    document.getElementById('myClicks').innerText = currentUser.clicks;
+
+    const { data: teamData } = await supabase.from('profiles').select('*').eq('team', currentUser.username);
+    const teamList = document.getElementById('teamList');
+    teamList.innerHTML = '';
+    teamData.forEach(member => {
+      let li = document.createElement('li');
+      li.textContent = `${member.username} (${member.clicks})`;
+      teamList.appendChild(li);
+    });
+
+    updateLeaderboard();
+  }
+
+  async function updateLeaderboard() {
+    const { data: leaderboard } = await supabase.from('profiles').select('*').order('clicks', { ascending: false }).limit(10);
+    const board = document.getElementById('leaderboardList');
+    board.innerHTML = '';
+    leaderboard.forEach(user => {
+      let li = document.createElement('li');
+      li.innerHTML = user.username === currentUser.username ? `<span class="highlight">${user.username}: ${user.clicks}</span>` : `${user.username}: ${user.clicks}`;
+      board.appendChild(li);
+    });
+  }
+
+  function toggleLeaderboard() {
+    const panel = document.getElementById('rightPanel');
+    panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+  }
+
+  window.onload = teleportButton;
+</script>
+</body>
+</html>
